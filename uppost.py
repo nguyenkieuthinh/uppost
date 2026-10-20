@@ -61,6 +61,8 @@ NOTE_MAX = 2200              # TikTok's caption limit, in UTF-16 runes
 PHOTO_TITLE_MAX = 90         # photo post title limit
 PHOTO_DESC_MAX = 4000        # photo post description limit
 MAX_PHOTOS = 35              # TikTok's limit for a photo post
+PHOTO_MAX_SIDE = 1080        # TikTok's "maximum 1080p" limit for photos
+PHOTO_MAX_BYTES = 20 * MB    # TikTok's per-image size limit
 
 # TikTok's own limits for a video draft, from the media transfer guide.
 MAX_VIDEO_BYTES = 4 * 1024 * MB
@@ -508,6 +510,35 @@ def cmd_tag(names, limit=10):
     print(" ".join(f"#{name}" for name, _ in rows))
 
 
+def cmd_prep(paths, out_dir, quality=88):
+    """Resize images to what TikTok accepts for a photo post.
+
+    TikTok takes WebP or JPEG, at most 1080p, and at most 20 MB each. The
+    originals are never touched; the resized copies go to out_dir.
+    """
+    from PIL import Image
+
+    os.makedirs(out_dir, exist_ok=True)
+    for path in paths:
+        if not os.path.isfile(path):
+            sys.exit(f"File not found: {path}")
+        im = Image.open(path)
+        if im.mode in ("RGBA", "P", "LA"):
+            # Flatten onto black: JPEG has no alpha channel.
+            flat = Image.new("RGB", im.size, (0, 0, 0))
+            im = im.convert("RGBA")
+            flat.paste(im, mask=im.split()[-1])
+            im = flat
+        else:
+            im = im.convert("RGB")
+        im.thumbnail((PHOTO_MAX_SIDE, PHOTO_MAX_SIDE), Image.LANCZOS)
+        name = os.path.splitext(os.path.basename(path))[0][:30] + ".jpg"
+        out = os.path.join(out_dir, name)
+        im.save(out, "JPEG", quality=quality, optimize=True, progressive=True)
+        size = os.path.getsize(out)
+        print(f"{out}  {im.size[0]}x{im.size[1]}  {size / MB:.2f} MB")
+
+
 def cmd_music(target):
     """Print the sound id used by a TikTok video, ready for `photo --music`.
 
@@ -611,7 +642,8 @@ def hashtag_stats(name):
 
 
 def main():
-    cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag", "music")
+    cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag", "music",
+            "prep")
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         sys.exit(1)
@@ -622,6 +654,11 @@ def main():
         if len(sys.argv) < 3:
             sys.exit('Usage: python uppost.py music <tiktok video link or id>')
         cmd_music(sys.argv[2])
+        return
+    if sys.argv[1] == "prep":
+        if len(sys.argv) < 4:
+            sys.exit('Usage: python uppost.py prep <out_dir> <image> [image ...]')
+        cmd_prep(sys.argv[3:], sys.argv[2])
         return
     if len(sys.argv) < 3:
         print(__doc__)
