@@ -53,6 +53,7 @@ import requests
 BASE = "https://open.tiktokapis.com"
 REDIRECT_URI = "https://nguyenkieuthinh.github.io/uppost/callback.html"
 TOKEN_FILE = "tokens.json"
+SHARE_LOG = "shares.log"        # every share this tool made, one id per line
 
 MB = 1024 * 1024
 SINGLE_CHUNK_MAX = 64 * MB   # up to 64 MB can be sent as one chunk
@@ -152,6 +153,41 @@ def get_access_token():
         print("Access token refreshed.")
         return data["access_token"]
     return tokens["access_token"]
+
+
+def record_share(publish_id):
+    """Remember a share id, so the quota command can see the history."""
+    try:
+        with open(SHARE_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{publish_id}\n")
+    except OSError:
+        pass   # a missing history is not worth failing an upload over
+
+
+def known_shares():
+    """Every share id this tool has made, newest first."""
+    try:
+        with open(SHARE_LOG, encoding="utf-8") as f:
+            ids = [line.strip() for line in f if line.strip()]
+    except OSError:
+        return []
+    seen = []
+    for i in ids:
+        if i not in seen:
+            seen.append(i)
+    seen.sort(key=share_time, reverse=True)
+    return seen
+
+
+def share_time(publish_id):
+    """The time a share was created, from the id itself.
+
+    The top 32 bits of the number after "v2." are a Unix timestamp.
+    """
+    m = re.search(r"v2\.(\d+)", publish_id or "")
+    if not m:
+        return 0
+    return int(m.group(1)) >> 32
 
 
 def read_note(arg, limit=NOTE_MAX):
@@ -330,6 +366,7 @@ def cmd_upload(path, note=None):
 
     upload_url = init["data"]["upload_url"]
     publish_id = init["data"]["publish_id"]
+    record_share(publish_id)
     print("Init OK. publish_id:", publish_id)
 
     with open(path, "rb") as f:
@@ -392,6 +429,127 @@ def deliver_note(path, note):
         print("Note copied to the clipboard. Paste it into the caption in the app.")
     else:
         print("Could not reach the clipboard. Copy the note from the file above.")
+
+
+def cmd_quota(show_shares=False):
+    """Report whether the API will take another share, without making one.
+
+    The upload cap is enforced by the init endpoint, and the only way to ask
+    it is to call it. A call that would actually create a share is no good
+    for a probe, so this one points at a domain that is deliberately not
+    verified.
+
+    The endpoint checks in a fixed order: the request shape first, then the
+    cap, then the URL. So the answers are readable:
+
+    | Answer | Means |
+    |--------|-------|
+    | `url_ownership_unverified` | the cap let the request through |
+    | `spam_risk_too_many_pending_share` | the cap is still in the way |
+    | `invalid_params` | the request shape was rejected, check this tool |
+
+    A probe that returns `url_ownership_unverified` costs nothing: the
+    request never got as far as creating a share.
+    """
+    access_token = get_access_token()
+    body = {
+        "post_info": {"title": "quota probe"},
+        "source_info": {
+            "source": "PULL_FROM_URL",
+            "photo_cover_index": 0,
+            # A domain that is not verified, so the request cannot succeed
+            # even if the cap lets it through.
+            "photo_images": ["https://quota-probe.invalid/probe.jpg"],
+        },
+        "post_mode": "MEDIA_UPLOAD",
+        "media_type": "PHOTO",
+    }
+    r = requests.post(
+        f"{BASE}/v2/post/publish/content/init/",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        json=body,
+        timeout=30,
+    )
+    try:
+        result = r.json()
+    except ValueError:
+        sys.exit(f"Probe failed: HTTP {r.status_code} {r.text[:300]}")
+    code = result.get("error", {}).get("code")
+
+    if code == "spam_risk_too_many_pending_share":
+        print("Blocked. The 24-hour share cap is still in the way.")
+        print("No share was created by this probe.")
+    elif code == "url_ownership_unverified":
+        print("Ready. The cap let the request through, and the probe then")
+        print("failed on its deliberately unverified URL, so no share was made.")
+        print("A photo or video upload should go through now.")
+    elif code in (None, "ok"):
+        print("Ready, but the probe was accepted outright. No share was created")
+        print("because the URL is not a real one.")
+    else:
+        print(f"Unexpected answer: {code}")
+        print(json.dumps(result, indent=2))
+
+    if show_shares:
+        print()
+        print_share_history(access_token)
+    elif code == "spam_risk_too_many_pending_share":
+        print()
+        print_share_history(access_token)
+
+
+def print_share_history(access_token):
+    """Every share this tool made in the last 24 hours, and when a slot frees."""
+    shares = known_shares()
+    if not shares:
+        print("No shares recorded in shares.log yet.")
+        return
+    now = time.time()
+    in_window = 0
+    print(f"Shares made in the last 24 hours ({len(shares)}):")
+    for pid in shares:
+        made = share_time(pid)
+        if not made:
+            continue
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(made))
+        age = now - made
+        if age > 86400:
+            print(f"  {pid:<32} {when}  outside the window")
+            continue
+        in_window += 1
+        frees = made + 86400
+        left = frees - now
+        soon = ""
+        if 0 < left <= 86400:
+            soon = f"  slot frees in {format_gap(left)} ({time.strftime('%H:%M', time.localtime(frees))})"
+        print(f"  {pid:<32} {when}{soon}")
+    if in_window:
+        oldest = min(share_time(p) for p in shares if share_time(p))
+        free_at = oldest + 86400
+        if free_at > now:
+            print()
+            print(f"Oldest share in the window: {time.strftime('%Y-%m-%d %H:%M', time.localtime(oldest))}.")
+            print(f"A slot frees at {time.strftime('%Y-%m-%d %H:%M', time.localtime(free_at))}, "
+                  f"in {format_gap(free_at - now)}.")
+
+
+def format_gap(seconds):
+    """A duration in days, hours and minutes."""
+    seconds = int(seconds)
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    return " ".join(parts)
 
 
 def cmd_cancel(publish_id):
@@ -478,6 +636,7 @@ def cmd_photo(title, urls, music_id=None, auto_music=None, description=None):
         sys.exit(f"Init failed: {json.dumps(init, indent=2)}")
 
     publish_id = init["data"]["publish_id"]
+    record_share(publish_id)
     print("Init OK. publish_id:", publish_id)
 
     for _ in range(10):
@@ -786,10 +945,13 @@ def hashtag_stats(name):
 
 def main():
     cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag", "music",
-            "sounds", "prep")
+            "sounds", "prep", "quota")
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         sys.exit(1)
+    if sys.argv[1] == "quota":
+        cmd_quota(show_shares="--shares" in sys.argv[2:])
+        return
     if sys.argv[1] == "tag":
         cmd_tag(sys.argv[2:])
         return
