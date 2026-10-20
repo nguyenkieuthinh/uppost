@@ -33,12 +33,15 @@ Usage:
     7) Send a photo post (1-35 images) to your TikTok drafts
        Images must be public https URLs on a URL prefix you verified in TikTok
            python uppost.py photo "Caption" https://.../img1.jpg https://.../img2.jpg
+       Attach a sound from the TikTok app by its id
+           python uppost.py photo "Caption" https://.../img1.jpg --music 7387754233984227846
 
 Never commit tokens.json or your client secret to GitHub.
 """
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,6 +60,7 @@ CHUNK_SIZE = 32 * MB         # used for larger files
 NOTE_MAX = 2200              # TikTok's caption limit, in UTF-16 runes
 PHOTO_TITLE_MAX = 90         # photo post title limit
 PHOTO_DESC_MAX = 4000        # photo post description limit
+MAX_PHOTOS = 35              # TikTok's limit for a photo post
 
 # TikTok's own limits for a video draft, from the media transfer guide.
 MAX_VIDEO_BYTES = 4 * 1024 * MB
@@ -412,8 +416,22 @@ def cmd_cancel(publish_id):
     print("Note: this does not free a slot in the 5-per-24-hours upload cap.")
 
 
-def cmd_photo(title, urls):
+def cmd_photo(title, urls, music_id=None, auto_music=None):
     access_token = get_access_token()
+
+    if len(urls) > MAX_PHOTOS:
+        sys.exit(f"Too many images: {len(urls)}. TikTok takes at most {MAX_PHOTOS}.")
+
+    post_info = {
+        "title": title[:PHOTO_TITLE_MAX],
+        "description": title[:PHOTO_DESC_MAX],
+    }
+    if music_id:
+        # The sound to attach, as the id of a sound in the TikTok app.
+        post_info["music_id"] = str(music_id)
+    if auto_music is not None:
+        post_info["auto_add_music"] = auto_music
+
     init = requests.post(
         f"{BASE}/v2/post/publish/content/init/",
         headers={
@@ -421,7 +439,7 @@ def cmd_photo(title, urls):
             "Content-Type": "application/json; charset=UTF-8",
         },
         json={
-            "post_info": {"title": title[:PHOTO_TITLE_MAX], "description": title[:PHOTO_DESC_MAX]},
+            "post_info": post_info,
             "source_info": {
                 "source": "PULL_FROM_URL",
                 "photo_cover_index": 0,
@@ -490,6 +508,86 @@ def cmd_tag(names, limit=10):
     print(" ".join(f"#{name}" for name, _ in rows))
 
 
+def cmd_music(target):
+    """Print the sound id used by a TikTok video, ready for `photo --music`.
+
+    Accepts a full video link, a share link, or a bare video id. The embed
+    page carries the sound metadata in plain HTML, so no signing is needed.
+    """
+    video_id = extract_video_id(target)
+    if not video_id:
+        video_id = resolve_short_link(target)
+    if not video_id:
+        sys.exit(f"Could not find a video id in: {target}\n"
+                 "Expected something like https://www.tiktok.com/@user/video/1234567890")
+    info = sound_info(video_id)
+    if not info:
+        sys.exit(f"No sound found for video {video_id}. "
+                 "The video may be private, deleted, or region-locked.")
+    print(f"video   {video_id}")
+    print(f"music   {info['music_id']}")
+    print(f"title   {info['name']}")
+    if info.get("author"):
+        print(f"author  {info['author']}")
+    print(f"type    {'original sound' if info.get('original') else 'licensed sound'}")
+    print(f"\nReady to paste:\n{info['music_id']}")
+
+
+def extract_video_id(target):
+    """Pull the numeric video id out of a link, a share link, or a bare id."""
+    digits = re.findall(r"\d{15,22}", target)
+    for candidate in digits:
+        # A link can carry both a video id and a user id; the video one comes
+        # after "/video/". When the input is a bare id there is only one.
+        if "/video/" in target and target.index(candidate) < target.index("/video/"):
+            continue
+        return candidate
+    return None
+
+
+def resolve_short_link(url):
+    """Follow a vm.tiktok.com share link and read the video id off the end."""
+    if not url.startswith("http"):
+        return None
+    try:
+        r = requests.get(url, headers={"User-Agent": BROWSER_UA},
+                         timeout=20, allow_redirects=True)
+    except requests.RequestException:
+        return None
+    return extract_video_id(r.url)
+
+
+def sound_info(video_id):
+    """The sound attached to a video, read from its embed page."""
+    try:
+        r = requests.get(
+            f"https://www.tiktok.com/embed/v2/{video_id}",
+            headers={"User-Agent": BROWSER_UA},
+            timeout=25,
+        )
+    except requests.RequestException:
+        return None
+    if r.status_code != 200:
+        return None
+    html = r.text
+    block = re.search(r'"musicInfos":(\{.*?\}),"', html)
+    if not block:
+        return None
+    try:
+        data = json.loads(block.group(1))
+    except ValueError:
+        return None
+    music_id = data.get("musicId")
+    if not music_id:
+        return None
+    return {
+        "music_id": music_id,
+        "name": data.get("musicName") or "",
+        "author": data.get("authorName") or "",
+        "original": bool(data.get("original")),
+    }
+
+
 def hashtag_stats(name):
     """Live view and video counts for one hashtag, or None if it is unknown."""
     name = name.lstrip("#").strip()
@@ -513,12 +611,17 @@ def hashtag_stats(name):
 
 
 def main():
-    cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag")
+    cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag", "music")
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         sys.exit(1)
     if sys.argv[1] == "tag":
         cmd_tag(sys.argv[2:])
+        return
+    if sys.argv[1] == "music":
+        if len(sys.argv) < 3:
+            sys.exit('Usage: python uppost.py music <tiktok video link or id>')
+        cmd_music(sys.argv[2])
         return
     if len(sys.argv) < 3:
         print(__doc__)
@@ -535,8 +638,28 @@ def main():
         cmd_upload(sys.argv[2], note)
     else:
         if len(sys.argv) < 4:
-            sys.exit('Usage: python uppost.py photo "Caption" URL1 [URL2 ...]')
-        cmd_photo(sys.argv[2], sys.argv[3:])
+            sys.exit('Usage: python uppost.py photo "Caption" URL1 [URL2 ...]\n'
+                     '       python uppost.py photo "Caption" URL1 --music 7387754233984227846')
+        music_id = None
+        auto_music = None
+        args = []
+        rest = sys.argv[3:]
+        i = 0
+        while i < len(rest):
+            arg = rest[i]
+            if arg == "--music" and i + 1 < len(rest):
+                music_id = rest[i + 1]
+                i += 2
+            elif arg == "--auto-music":
+                auto_music = True
+                i += 1
+            elif arg == "--no-auto-music":
+                auto_music = False
+                i += 1
+            else:
+                args.append(arg)
+                i += 1
+        cmd_photo(sys.argv[2], args, music_id, auto_music)
 
 
 if __name__ == "__main__":

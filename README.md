@@ -143,14 +143,37 @@ open, so this works on live numbers instead of a fixed list.
 python3 uppost.py photo "My caption" https://example.com/img1.jpg https://example.com/img2.jpg
 ```
 
-Up to 35 images. Unlike video, this one **does** set the caption through the
-API: `post_info.title` shows as the title and `post_info.description` shows in
-the editing flow, and the title is capped at 90 characters and the description
-at 4000.
+Up to 35 images. The limit was confirmed against the API: 35 images get
+through, 36 come back as `invalid_params`. The tool refuses more than 35
+before it sends anything.
+
+Unlike video, this one **does** set the caption through the API:
+`post_info.title` shows as the title and `post_info.description` shows in the
+editing flow, and the title is capped at 90 characters and the description at
+4000.
 
 The images must be public HTTPS URLs on a domain or URL prefix you have
 verified in the TikTok developer site. Without that you get
 `url_ownership_unverified`.
+
+To attach a sound, pass the id of a sound from the TikTok app:
+
+```bash
+python3 uppost.py photo "My caption" https://example.com/img1.jpg --music 7387754233984227846
+```
+
+See the section on sound below for how that id is found.
+
+### `music` — get the sound id off a video
+
+```bash
+python3 uppost.py music https://www.tiktok.com/@user/video/7698804964629466389
+python3 uppost.py music 7698804964629466389
+```
+
+Prints the sound id used by a video, plus its title and author. This is the
+id you pass to `photo --music`. It reads the video's embed page, so it needs
+no login and works for any public video.
 
 ### `cancel` — stop a share that is waiting to be published
 
@@ -185,6 +208,74 @@ stuck.
 The video flow is three steps: `init` returns a `publish_id` and an
 `upload_url`, the file is `PUT` to that URL in chunks, then the status is
 polled until it reports `SEND_TO_USER_INBOX`.
+
+## Sound on a photo post
+
+A photo post can carry a sound from TikTok, but the field that does it is not
+in the documentation. `post_info.music_id` was found by probing the endpoint:
+it is the only audio field it recognises.
+
+The photo endpoint validates `post_info` strictly, which makes it usable as an
+oracle. A recognised field given a wrong type comes back as
+`400 invalid_params`, while an unknown field is ignored and the request falls
+through to the URL check:
+
+| Field | Result |
+|-------|--------|
+| `post_info.music_id` | `400 invalid_params` when given a number, so it is a **string** |
+| `post_info.audio`, `sound`, `audio_info`, `music`, `sound_id`, `audio_url`, and about ten more | ignored, no error |
+| `post_info.auto_add_music` | ignored for `MEDIA_UPLOAD`; documented to work only for `DIRECT_POST` |
+
+`--music` takes that id as a string.
+
+### Finding the id
+
+Open the sound in the TikTok app, choose **Share**, and copy the link. The id
+is the long number at the end of it:
+
+```
+https://www.tiktok.com/sound/7387754233984227846
+                                       ^^^^^^^^^^^^^^ this
+```
+
+TikTok's own pages are rendered in JavaScript, so scraping a sound page for
+the id does not work, and their music API needs a signed request.
+
+There is a faster route when you already know a video that uses the sound.
+The `music` command reads the sound off any video's embed page and prints the
+id:
+
+```bash
+python3 uppost.py music https://www.tiktok.com/@user/video/7698804964629466389
+```
+
+```
+video   7698804964629466389
+music   7698804998703827713
+title   original sound
+author  THINH NK 2.0
+type    original sound
+
+Ready to paste:
+7698804998703827713
+```
+
+It takes a full link, a `vm.tiktok.com` share link, or a bare video id, and it
+works on other people's videos as well as your own. The embed page carries
+the sound metadata in plain HTML, so no signing or login is involved.
+
+### What is not settled
+
+Whether the sound actually shows up in the editing flow after it is attached
+has not been confirmed end to end. The field is accepted and the type is
+right, but the request could not be completed on this account, because photo
+posts need a verified URL prefix and this one has none yet. Once the domain
+is verified, a photo post with `--music` will show the sound in the app.
+
+For video, there is no sound field at all. The draft endpoint ignores
+`post_info` completely, and `media_type: VIDEO` is rejected by the photo
+endpoint, so there is no route to attach music to a video draft through the
+API. Set the sound in the app instead.
 
 ## Limits and errors
 
