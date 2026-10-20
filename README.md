@@ -297,27 +297,28 @@ add a signature string to the domain's DNS records, in a TXT record.
 
 **A URL prefix** covers one exact path. It is `https://` + host + path + `/`,
 and it must be a real domain, not an IP address. TikTok gives you a
-verification file to host at that prefix.
+verification file to upload to that prefix, then you press **Verify** in the
+portal.
 
-The verification file for this project is already in the repo and already
-served:
+The portal hands out a file named `tiktok<token>.txt` whose content is
+`tiktok-developers-site-verification=<token>`. Put that file in the repo at
+the prefix path, and the same signature in a meta tag in the page head:
 
+```html
+<meta name="tiktok-developers-site-verification" content="<token>">
 ```
-https://nguyenkieuthinh.github.io/uppost/tiktoknZIRTB9kqIlBLFSfXjUNdWvIxMX2SAY8.txt
-```
 
-Add the domain `nguyenkieuthinh.github.io`, or the URL prefix
-`https://nguyenkieuthinh.github.io/uppost/`, in the **URL properties** widget
-on <https://developers.tiktok.com>. Once it is verified, photo posts work and
-the images under `wallpapers/` can be posted straight away.
+Both shapes are in this repo, so whichever check the portal runs finds one.
+The prefix used here is `https://nguyenkieuthinh.github.io/uppost/`, and the
+images under `wallpapers/` are served from that same prefix, so they can be
+posted straight away.
 
 ### What is not settled
 
-Whether the sound actually shows up in the editing flow after it is attached
-has not been confirmed end to end. The field is accepted and the type is
-right, but the request could not be completed on this account, because photo
-posts need a verified URL prefix and this one has none yet. Once the domain
-is verified, a photo post with `--music` will show the sound in the app.
+A photo post with a sound was uploaded successfully and reached
+`SEND_TO_USER_INBOX`, so the field is accepted end to end. Whether the sound
+shows up in the editing flow after the draft is opened in the app has not
+been checked yet, because that only happens on the phone.
 
 For video, there is no sound field at all. The draft endpoint ignores
 `post_info` completely, and `media_type: VIDEO` is rejected by the photo
