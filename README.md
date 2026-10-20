@@ -243,6 +243,35 @@ Each account's embed page lists its video ids, and each video's embed page
 names the sound it uses, so this needs no login and no signed request. It
 works for any public account.
 
+### `quota` — check whether the API will take another share
+
+```bash
+python3 uppost.py quota
+python3 uppost.py quota --shares
+```
+
+Says whether an upload would go through right now, and how long until it
+would. It does not create a share.
+
+The cap is enforced by the `init` endpoint, and the only way to ask that
+endpoint anything is to call it. So the probe points at a domain that is
+deliberately not verified. The endpoint checks in a fixed order, and the
+answer says which check it stopped at:
+
+| Answer | Means |
+|--------|-------|
+| `url_ownership_unverified` | the cap let the request through, so an upload should work |
+| `spam_risk_too_many_pending_share` | the cap is still in the way |
+| `invalid_params` | the request shape was rejected, which would be a bug in this tool |
+
+A probe that reaches the URL check never created a share, so running it
+costs nothing.
+
+`--shares` adds the list of shares made in the last 24 hours, with the time
+each one frees a slot. Every share this tool makes is recorded in
+`shares.log`, and the top 32 bits of a publish id are its creation time, so
+the window can be worked out without guessing.
+
 ### `cancel` — stop a share that is waiting to be published
 
 ```bash
@@ -476,11 +505,12 @@ kept returning it for 10 minutes of retries. The cap appears to count shares
 inside a rolling 24-hour window rather than shares awaiting approval, so
 publishing or cancelling does not clear it. Expect to wait out the window.
 
-A second measurement sharpened this. Six shares were created inside a
-24-hour window, and cancelling four of them did not help: the cap was still
-hit with only two left pending. The counter tracks every share that was
-created, not the ones waiting for approval, and a slot only comes back when
-the oldest share drops out of the 24-hour window.
+A second measurement sharpened this. Ten shares were created inside a
+24-hour window, and cancelling six of them did not help: the cap was still
+hit with only two left pending, one of which had already been published.
+The counter tracks every share that was created, not the ones waiting for
+approval, and a slot only comes back when the oldest share drops out of the
+24-hour window.
 
 The publish id carries its own timestamp, so the wait can be calculated
 without guessing. The top 32 bits are a Unix time:
@@ -488,6 +518,9 @@ without guessing. The top 32 bits are a Unix time:
 ```bash
 python3 -c "import datetime; print(datetime.datetime.fromtimestamp(7698804288848332821 >> 32))"
 ```
+
+The `quota` command does this for every share and prints the time the next
+slot frees.
 
 `uppost.py cancel` prints a line saying cancelling does not free a slot.
 That is right, and it is worth keeping in mind before spending a cancel on a
@@ -511,6 +544,7 @@ in the inbox.
 | `index.html` | The login page. Holds the public client key. |
 | `callback.html` | Where TikTok sends the authorization code. |
 | `tokens.json` | Your token. Git-ignored, never commit it. |
+| `shares.log` | Every share id this tool has made, one per line. The `quota` command reads it. |
 | `retry_photo.sh` | Retries one photo post every 20 minutes until the 24-hour cap lets it through. Run it when the cap is in the way. |
 
 ## Notes for the future
