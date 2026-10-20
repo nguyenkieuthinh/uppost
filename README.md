@@ -152,11 +152,14 @@ Unlike video, this one **does** set the caption through the API:
 editing flow, and the title is capped at 90 characters and the description at
 4000.
 
+The caption was confirmed on a published post: the title and the full
+description, hashtags included, came through untouched.
+
 The images must be public HTTPS URLs on a domain or URL prefix you have
 verified in the TikTok developer site. Without that you get
 `url_ownership_unverified`.
 
-To attach a sound, pass the id of a sound from the TikTok app:
+To note down a sound, pass the id of a sound from the TikTok app:
 
 ```bash
 python3 uppost.py photo "My caption" https://example.com/img1.jpg --music 7387754233984227846
@@ -171,6 +174,10 @@ id, so you can paste whatever you copied out of the app:
 | `https://www.tiktok.com/sound/7691584836313827380` | the number at the end is the id |
 | `https://www.tiktok.com/@user/video/7698323909124345108` | the sound of that video is read and used |
 | `https://vt.tiktok.com/ZS9UgJ4JpwScP-CnxwM/` | a sound share link: the sound id is read off the redirect |
+
+**The sound still has to be picked in the app.** The field is sent to TikTok
+and then ignored, so a published post ends up with whatever sound TikTok
+chose. See "Sound on a photo post" for the measurement behind that.
 
 See the section on sound below for how to find a sound that fits.
 
@@ -289,6 +296,28 @@ through to the URL check:
 
 `--music` takes that id as a string.
 
+### It does not actually attach the sound
+
+This is the important part, and it was measured rather than assumed. A photo
+post was created with `post_info.music_id` set to a specific sound, the post
+was published from the app, and the published post carries a **different**
+sound. The one that was asked for is not on the post at all.
+
+So `music_id` is a field the endpoint recognises, validates, and then ignores.
+It is not a way to choose the sound on a photo post.
+
+The documented way to get music on a photo is `post_info.auto_add_music`, and
+the documentation says it works only for `post_mode: DIRECT_POST`, not for
+`MEDIA_UPLOAD`. A `MEDIA_UPLOAD` draft is the only mode this tool uses,
+because `DIRECT_POST` publishes straight to the account and needs the
+`video.publish` scope.
+
+**The sound on a photo draft has to be picked in the app.** Open the draft
+from the inbox, choose the sound there, and publish. The `--music` flag
+records the id you wanted and prints it back, which is useful for keeping
+track of it, but it does not set the sound.
+
+
 ### Finding the id
 
 Open the sound in the TikTok app, choose **Share**, and copy the link. The id
@@ -404,9 +433,9 @@ posted straight away.
 ### What is not settled
 
 A photo post with a sound was uploaded successfully and reached
-`SEND_TO_USER_INBOX`, so the field is accepted end to end. Whether the sound
-shows up in the editing flow after the draft is opened in the app has not
-been checked yet, because that only happens on the phone.
+`SEND_TO_USER_INBOX`, so the field is accepted end to end. But the published
+post carries a different sound than the one that was asked for, so the field
+is accepted and then ignored. See the section above.
 
 For video, there is no sound field at all. The draft endpoint ignores
 `post_info` completely, and `media_type: VIDEO` is rejected by the photo

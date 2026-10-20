@@ -443,6 +443,8 @@ def cmd_photo(title, urls, music_id=None, auto_music=None, description=None):
         post_info["music_id"] = str(resolved)
         if info:
             print(f"Sound: {info['name']} - {info['author']}  (id {resolved})")
+        print("Note: TikTok accepts this sound id but does not apply it to a "
+              "photo draft. Pick the sound in the app before publishing.")
     if auto_music is not None:
         post_info["auto_add_music"] = auto_music
 
