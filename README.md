@@ -446,6 +446,23 @@ kept returning it for 10 minutes of retries. The cap appears to count shares
 inside a rolling 24-hour window rather than shares awaiting approval, so
 publishing or cancelling does not clear it. Expect to wait out the window.
 
+A second measurement sharpened this. Ten `init` calls had succeeded inside a
+24-hour window, and cancelling four of them did not help: the cap was still
+hit with only four shares left pending. The counter tracks every share that
+was created, not the ones waiting for approval, and a slot only comes back
+when the oldest share drops out of the 24-hour window.
+
+The publish id carries its own timestamp, so the wait can be calculated
+without guessing. The top 32 bits are a Unix time:
+
+```bash
+python3 -c "import datetime; print(datetime.datetime.fromtimestamp(7698804288848332821 >> 32))"
+```
+
+`uppost.py cancel` prints a line saying cancelling does not free a slot.
+That is right, and it is worth keeping in mind before spending a cancel on a
+draft you actually want.
+
 The error only blocks the `init` endpoints. `status/fetch` and `cancel/` keep
 working, so an existing upload can still be checked and cancelled while the
 cap is active.
@@ -464,6 +481,7 @@ in the inbox.
 | `index.html` | The login page. Holds the public client key. |
 | `callback.html` | Where TikTok sends the authorization code. |
 | `tokens.json` | Your token. Git-ignored, never commit it. |
+| `retry_photo.sh` | Retries one photo post every 20 minutes until the 24-hour cap lets it through. |
 
 ## Notes for the future
 
