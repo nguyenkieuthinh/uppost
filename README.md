@@ -511,7 +511,7 @@ in the inbox.
 | `index.html` | The login page. Holds the public client key. |
 | `callback.html` | Where TikTok sends the authorization code. |
 | `tokens.json` | Your token. Git-ignored, never commit it. |
-| `retry_photo.sh` | Retries one photo post every 20 minutes until the 24-hour cap lets it through. |
+| `retry_photo.sh` | Retries one photo post every 20 minutes until the 24-hour cap lets it through. Run it when the cap is in the way. |
 
 ## Notes for the future
 
