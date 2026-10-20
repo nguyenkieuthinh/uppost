@@ -563,24 +563,41 @@ def cmd_music(target):
 
     Accepts a full video link, a share link, or a bare video id. The embed
     page carries the sound metadata in plain HTML, so no signing is needed.
+    A share link that points at a sound rather than a video gives the sound
+    id directly.
     """
+    # A sound page already carries the id in its own path.
+    if "/sound/" in target or "/music/" in target:
+        m = re.findall(r"\d{15,22}", target)
+        if m:
+            print(f"music   {m[-1]}")
+            print("type    sound page link")
+            print(f"\nReady to paste:\n{m[-1]}")
+            return
+
     video_id = extract_video_id(target)
     if not video_id:
         video_id = resolve_short_link(target)
-    if not video_id:
-        sys.exit(f"Could not find a video id in: {target}\n"
-                 "Expected something like https://www.tiktok.com/@user/video/1234567890")
-    info = sound_info(video_id)
-    if not info:
-        sys.exit(f"No sound found for video {video_id}. "
-                 "The video may be private, deleted, or region-locked.")
-    print(f"video   {video_id}")
-    print(f"music   {info['music_id']}")
-    print(f"title   {info['name']}")
-    if info.get("author"):
-        print(f"author  {info['author']}")
-    print(f"type    {'original sound' if info.get('original') else 'licensed sound'}")
-    print(f"\nReady to paste:\n{info['music_id']}")
+    if video_id:
+        info = sound_info(video_id)
+        if info:
+            print(f"video   {video_id}")
+            print(f"music   {info['music_id']}")
+            print(f"title   {info['name']}")
+            if info.get("author"):
+                print(f"author  {info['author']}")
+            print(f"type    {'original sound' if info.get('original') else 'licensed sound'}")
+            print(f"\nReady to paste:\n{info['music_id']}")
+            return
+    music_id = music_id_from_share_link(target)
+    if music_id:
+        print(f"music   {music_id}")
+        print("type    original sound (shared from the app)")
+        print(f"\nReady to paste:\n{music_id}")
+        return
+    sys.exit(f"No sound found for: {target}\n"
+             "Expected a video link like https://www.tiktok.com/@user/video/1234567890\n"
+             "or a sound share link, which redirects to /music/<slug>-<id>.")
 
 
 def cmd_sounds(handles, limit=20):
@@ -653,7 +670,39 @@ def resolve_music_id(value):
         info = sound_info(video_id)
         if info:
             return info["music_id"], info
+
+    # A short link that points at a sound rather than a video. Following it
+    # lands on /music/<slug>-<id>, where the id is the sound id.
+    music_id = music_id_from_share_link(value)
+    if music_id:
+        return music_id, None
     return None, None
+
+
+def music_id_from_share_link(url):
+    """The sound id in a short share link that points at a sound.
+
+    Sharing a sound gives a link that redirects to
+    /music/<slug>-<id>?...&share_music_id=<id>. Following the redirect is
+    what tells a sound link apart from a video link.
+    """
+    if not url.startswith("http"):
+        return None
+    try:
+        r = requests.get(url, headers={"User-Agent": BROWSER_UA},
+                         timeout=20, allow_redirects=True)
+    except requests.RequestException:
+        return None
+    final = r.url or ""
+    if "/music/" not in final and "/sound/" not in final:
+        return None
+    m = re.search(r"share_music_id=(\d{15,22})", final)
+    if m:
+        return m.group(1)
+    m = re.search(r"/(?:music|sound)/[^/?]*?-(\d{15,22})", final)
+    if m:
+        return m.group(1)
+    return None
 
 
 def extract_video_id(target):
