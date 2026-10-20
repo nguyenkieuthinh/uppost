@@ -447,6 +447,7 @@ API. Set the sound in the app instead.
 | Message | What it means |
 |---------|---------------|
 | `spam_risk_too_many_pending_share` | The 5-per-24-hours upload cap was hit. See below for what actually frees a slot. |
+| `reached_active_user_cap` | The daily quota for active publishing users of your app was reached. A different limit from the 5-share cap. |
 | `url_ownership_unverified` | The image URLs are not on a verified domain. Add it in the developer site. |
 | `scope_not_authorized` | The token does not carry the scope this call needs. |
 | `access_token_invalid` | The token expired and could not be refreshed. Log in again. |
@@ -475,11 +476,11 @@ kept returning it for 10 minutes of retries. The cap appears to count shares
 inside a rolling 24-hour window rather than shares awaiting approval, so
 publishing or cancelling does not clear it. Expect to wait out the window.
 
-A second measurement sharpened this. Ten `init` calls had succeeded inside a
+A second measurement sharpened this. Six shares were created inside a
 24-hour window, and cancelling four of them did not help: the cap was still
-hit with only four shares left pending. The counter tracks every share that
-was created, not the ones waiting for approval, and a slot only comes back
-when the oldest share drops out of the 24-hour window.
+hit with only two left pending. The counter tracks every share that was
+created, not the ones waiting for approval, and a slot only comes back when
+the oldest share drops out of the 24-hour window.
 
 The publish id carries its own timestamp, so the wait can be calculated
 without guessing. The top 32 bits are a Unix time:
