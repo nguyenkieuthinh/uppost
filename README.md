@@ -170,6 +170,7 @@ id, so you can paste whatever you copied out of the app:
 | `7691584836313827380` | used as the id |
 | `https://www.tiktok.com/sound/7691584836313827380` | the number at the end is the id |
 | `https://www.tiktok.com/@user/video/7698323909124345108` | the sound of that video is read and used |
+| `https://vt.tiktok.com/ZS9UgJ4JpwScP-CnxwM/` | a sound share link: the sound id is read off the redirect |
 
 See the section on sound below for how to find a sound that fits.
 
@@ -179,6 +180,23 @@ list of images, put one URL per line and point `--urls` at that file:
 ```bash
 python3 uppost.py photo "Midnight Wanderlust" --urls images.txt \
     --desc @captions/wallpapers.txt --music 7691584836313827380
+```
+
+`--desc` takes the path with an `@` in front of it, and `--urls` takes the
+plain path. A file this repo already has:
+
+| File | What it is |
+|------|------------|
+| `url/list.txt` | the seven wallpaper URLs, one per line |
+| `captions/wallpapers.txt` | the English caption and its 20 hashtags |
+
+A ready-to-paste command for the wallpaper set:
+
+```bash
+python3 uppost.py photo "Midnight Wanderlust" \
+    --urls /home/thinh/antigravity/uppost/url/list.txt \
+    --desc @/home/thinh/antigravity/uppost/captions/wallpapers.txt \
+    --music 7691584836313827380
 ```
 
 ### `prep` — resize images to what TikTok accepts
@@ -306,6 +324,26 @@ Ready to paste:
 It takes a full link, a `vm.tiktok.com` share link, or a bare video id, and it
 works on other people's videos as well as your own. The embed page carries
 the sound metadata in plain HTML, so no signing or login is involved.
+
+A share link that points at a **sound** rather than a video works too, and is
+read straight off the redirect:
+
+```bash
+python3 uppost.py music https://vt.tiktok.com/ZS9UgJ4JpwScP-CnxwM/
+```
+
+```
+music   7525403525971528465
+type    original sound (shared from the app)
+
+Ready to paste:
+7525403525971528465
+```
+
+Sharing a sound from the app gives a link that redirects to
+`/music/<slug>-<id>`, with the id also in the `share_music_id` query
+parameter. The sound page itself is rendered in JavaScript, so the id comes
+from the redirect target rather than the page body.
 
 ### Finding a sound that fits
 
