@@ -162,13 +162,23 @@ To attach a sound, pass the id of a sound from the TikTok app:
 python3 uppost.py photo "My caption" https://example.com/img1.jpg --music 7387754233984227846
 ```
 
-See the section on sound below for how that id is found.
+A photo post carries one sound. `--music` also takes a link instead of a bare
+id, so you can paste whatever you copied out of the app:
 
-For a longer caption, keep it in a file and point `--desc` at it:
+| What you pass | What happens |
+|---------------|--------------|
+| `7691584836313827380` | used as the id |
+| `https://www.tiktok.com/sound/7691584836313827380` | the number at the end is the id |
+| `https://www.tiktok.com/@user/video/7698323909124345108` | the sound of that video is read and used |
+
+See the section on sound below for how to find a sound that fits.
+
+For a longer caption, keep it in a file and point `--desc` at it. For a long
+list of images, put one URL per line and point `--urls` at that file:
 
 ```bash
-python3 uppost.py photo "Midnight Wanderlust" URL1 URL2 \
-    --desc @captions/wallpapers.txt --music 7690677327940716550
+python3 uppost.py photo "Midnight Wanderlust" --urls images.txt \
+    --desc @captions/wallpapers.txt --music 7691584836313827380
 ```
 
 ### `prep` — resize images to what TikTok accepts
@@ -194,6 +204,19 @@ python3 uppost.py music 7698804964629466389
 Prints the sound id used by a video, plus its title and author. This is the
 id you pass to `photo --music`. It reads the video's embed page, so it needs
 no login and works for any public video.
+
+### `sounds` — list the sounds an account is using
+
+```bash
+python3 uppost.py sounds setuphype tomsguide
+```
+
+Prints the sound id, title and author for each sound on the account's recent
+videos. This is how you find a sound that fits, without the app.
+
+Each account's embed page lists its video ids, and each video's embed page
+names the sound it uses, so this needs no login and no signed request. It
+works for any public account.
 
 ### `cancel` — stop a share that is waiting to be published
 
@@ -283,6 +306,33 @@ Ready to paste:
 It takes a full link, a `vm.tiktok.com` share link, or a bare video id, and it
 works on other people's videos as well as your own. The embed page carries
 the sound metadata in plain HTML, so no signing or login is involved.
+
+### Finding a sound that fits
+
+A photo post takes one sound, so the question is which one. The `sounds`
+command lists what an account is using:
+
+```bash
+python3 uppost.py sounds edits tomsguide
+```
+
+Accounts that post wallpapers, setups and edits are the ones worth looking
+at. Among the sounds that turned up, the ones that matched a dark wallpaper
+post best were:
+
+| Sound | Id |
+|-------|-----|
+| CRAMPS (Slowed) - nevora & zhyar | `7691584836313827380` |
+| EUCLID - Slowed - KLEAVE & SXCREDMANE | `7689157194702194689` |
+| NA PISTOLA (SLOWED) - wither & zhyar | `7689590403520530484` |
+| Basement Replay - Mildred Gander | `7664055506831394858` |
+| Coffee & Vinyl - Emi Izumi | `7629028310059599882` |
+| Late Night Loops - Chuckles the Band | `7656790142947297289` |
+| Sci-fi ambient with a desolate and lonely - harryfaoki | `7223823859698894850` |
+| MILLION DOLLAR BABY (VHS) - Tommy Richman | `7362317730454308880` |
+
+Any of these can be passed to `photo --music`. If a different one is wanted,
+find the id with `sounds` or `music` and pass that instead.
 
 ### Verifying the domain
 

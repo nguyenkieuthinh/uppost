@@ -433,8 +433,16 @@ def cmd_photo(title, urls, music_id=None, auto_music=None, description=None):
         "description": body_text[:PHOTO_DESC_MAX],
     }
     if music_id:
-        # The sound to attach, as the id of a sound in the TikTok app.
-        post_info["music_id"] = str(music_id)
+        # The sound to attach. Accepts a bare id, a sound link, or a video
+        # link whose sound is read off its embed page.
+        resolved, info = resolve_music_id(str(music_id))
+        if not resolved:
+            sys.exit(f"Could not work out a sound id from: {music_id}\n"
+                     "Pass a sound id, a tiktok.com/sound/... link, "
+                     "or a video link.")
+        post_info["music_id"] = str(resolved)
+        if info:
+            print(f"Sound: {info['name']} - {info['author']}  (id {resolved})")
     if auto_music is not None:
         post_info["auto_add_music"] = auto_music
 
@@ -575,6 +583,79 @@ def cmd_music(target):
     print(f"\nReady to paste:\n{info['music_id']}")
 
 
+def cmd_sounds(handles, limit=20):
+    """List the sounds used by a TikTok account's recent videos.
+
+    A photo post can carry one sound, so this is for picking one that fits.
+    Each account's embed page lists its video ids, and each video's embed
+    page names the sound it uses, so no signed request is needed.
+    """
+    if not handles:
+        sys.exit("Usage: python uppost.py sounds <user> [user ...]")
+    for handle in handles:
+        handle = handle.lstrip("@")
+        vids = account_video_ids(handle)
+        if not vids:
+            print(f"@{handle}: no videos found")
+            continue
+        print(f"\n@{handle}: {len(vids)} videos")
+        seen = {}
+        for vid in vids:
+            info = sound_info(vid)
+            if not info:
+                continue
+            key = info["music_id"]
+            if key not in seen:
+                seen[key] = (info, vid)
+        for key, (info, vid) in list(seen.items())[:limit]:
+            kind = "original" if info["original"] else "licensed"
+            print(f"  {key}  {info['name'][:40]:<40} {info['author'][:22]:<22} {kind}")
+
+
+def account_video_ids(handle):
+    """The video ids on a TikTok account's embed page, newest first."""
+    try:
+        r = requests.get(f"https://www.tiktok.com/embed/@{handle}",
+                         headers={"User-Agent": BROWSER_UA}, timeout=25)
+    except requests.RequestException:
+        return []
+    if r.status_code != 200:
+        return []
+    ids = []
+    for m in re.finditer(r"/video/(\d{15,22})", r.text):
+        if m.group(1) not in ids:
+            ids.append(m.group(1))
+    ids.sort(reverse=True)   # higher id means newer video
+    return ids
+
+
+def resolve_music_id(value):
+    """Turn whatever the user passed to --music into a sound id.
+
+    Accepts a bare id, a sound link, a video link, or a share link. A sound
+    link already ends in the id; a video link needs its embed page read.
+    """
+    value = value.strip()
+    if re.fullmatch(r"\d{15,22}", value):
+        return value, None
+
+    # A sound link: the id is the last number in it.
+    if "/sound/" in value or "/music/" in value:
+        m = re.findall(r"\d{15,22}", value)
+        if m:
+            return m[-1], None
+
+    # A video link: read the sound off its embed page.
+    video_id = extract_video_id(value)
+    if not video_id:
+        video_id = resolve_short_link(value)
+    if video_id:
+        info = sound_info(video_id)
+        if info:
+            return info["music_id"], info
+    return None, None
+
+
 def extract_video_id(target):
     """Pull the numeric video id out of a link, a share link, or a bare id."""
     digits = re.findall(r"\d{15,22}", target)
@@ -654,7 +735,7 @@ def hashtag_stats(name):
 
 def main():
     cmds = ("login", "upload", "api", "check", "cancel", "photo", "tag", "music",
-            "prep")
+            "sounds", "prep")
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         sys.exit(1)
@@ -665,6 +746,11 @@ def main():
         if len(sys.argv) < 3:
             sys.exit('Usage: python uppost.py music <tiktok video link or id>')
         cmd_music(sys.argv[2])
+        return
+    if sys.argv[1] == "sounds":
+        if len(sys.argv) < 3:
+            sys.exit('Usage: python uppost.py sounds <user> [user ...]')
+        cmd_sounds(sys.argv[2:])
         return
     if sys.argv[1] == "prep":
         if len(sys.argv) < 4:
@@ -702,6 +788,15 @@ def main():
                 i += 2
             elif arg == "--desc" and i + 1 < len(rest):
                 description = read_note(rest[i + 1], PHOTO_DESC_MAX)
+                i += 2
+            elif arg == "--urls" and i + 1 < len(rest):
+                # A file with one image URL per line, for long lists.
+                path = rest[i + 1]
+                if not os.path.isfile(path):
+                    sys.exit(f"URL list not found: {path}")
+                with open(path, encoding="utf-8") as f:
+                    args.extend(line.strip() for line in f
+                               if line.strip() and not line.startswith("#"))
                 i += 2
             elif arg == "--auto-music":
                 auto_music = True
