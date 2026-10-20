@@ -164,6 +164,26 @@ python3 uppost.py photo "My caption" https://example.com/img1.jpg --music 738775
 
 See the section on sound below for how that id is found.
 
+For a longer caption, keep it in a file and point `--desc` at it:
+
+```bash
+python3 uppost.py photo "Midnight Wanderlust" URL1 URL2 \
+    --desc @captions/wallpapers.txt --music 7690677327940716550
+```
+
+### `prep` — resize images to what TikTok accepts
+
+```bash
+python3 uppost.py prep ./out ~/Pictures/Wallpapers/*.jpg
+```
+
+TikTok takes WebP or JPEG, at most 1080p, and at most 20 MB per image. Wallpaper
+files run far past that, so this scales them down and re-encodes them as JPEG.
+The originals are never touched; the copies go to the output directory.
+
+The resized files still have to be served over HTTPS from a verified domain
+before `photo` can use them.
+
 ### `music` — get the sound id off a video
 
 ```bash
@@ -263,6 +283,33 @@ Ready to paste:
 It takes a full link, a `vm.tiktok.com` share link, or a bare video id, and it
 works on other people's videos as well as your own. The embed page carries
 the sound metadata in plain HTML, so no signing or login is involved.
+
+### Verifying the domain
+
+Photo posts pull the images from a URL, so TikTok has to trust that the URL
+belongs to you. Until the domain is verified, every photo post fails with
+`url_ownership_unverified`, and no amount of retrying helps.
+
+There are two ways to verify, and either one works:
+
+**A domain** covers the whole host and every path under it. TikTok asks you to
+add a signature string to the domain's DNS records, in a TXT record.
+
+**A URL prefix** covers one exact path. It is `https://` + host + path + `/`,
+and it must be a real domain, not an IP address. TikTok gives you a
+verification file to host at that prefix.
+
+The verification file for this project is already in the repo and already
+served:
+
+```
+https://nguyenkieuthinh.github.io/uppost/tiktoknZIRTB9kqIlBLFSfXjUNdWvIxMX2SAY8.txt
+```
+
+Add the domain `nguyenkieuthinh.github.io`, or the URL prefix
+`https://nguyenkieuthinh.github.io/uppost/`, in the **URL properties** widget
+on <https://developers.tiktok.com>. Once it is verified, photo posts work and
+the images under `wallpapers/` can be posted straight away.
 
 ### What is not settled
 

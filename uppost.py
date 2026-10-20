@@ -154,7 +154,7 @@ def get_access_token():
     return tokens["access_token"]
 
 
-def read_note(arg):
+def read_note(arg, limit=NOTE_MAX):
     """Resolve the note argument: an inline string, or @path to read a file."""
     if arg is None:
         return None
@@ -169,9 +169,9 @@ def read_note(arg):
     if not note:
         sys.exit("The note is empty.")
     length = len(note.encode("utf-16-le")) // 2   # TikTok counts UTF-16 runes
-    if length > NOTE_MAX:
-        print(f"Note is {length} chars, truncating to {NOTE_MAX}.")
-        note = note.encode("utf-16-le")[: NOTE_MAX * 2].decode("utf-16-le", "ignore")
+    if length > limit:
+        print(f"Note is {length} chars, truncating to {limit}.")
+        note = note.encode("utf-16-le")[: limit * 2].decode("utf-16-le", "ignore")
     return note
 
 
@@ -418,15 +418,19 @@ def cmd_cancel(publish_id):
     print("Note: this does not free a slot in the 5-per-24-hours upload cap.")
 
 
-def cmd_photo(title, urls, music_id=None, auto_music=None):
+def cmd_photo(title, urls, music_id=None, auto_music=None, description=None):
     access_token = get_access_token()
 
     if len(urls) > MAX_PHOTOS:
         sys.exit(f"Too many images: {len(urls)}. TikTok takes at most {MAX_PHOTOS}.")
 
+    # The title is the short headline, the description is the caption body.
+    # If only one text is given it serves as both, so a one-line post still
+    # lands with the words the user wrote.
+    body_text = description if description is not None else title
     post_info = {
         "title": title[:PHOTO_TITLE_MAX],
-        "description": title[:PHOTO_DESC_MAX],
+        "description": body_text[:PHOTO_DESC_MAX],
     }
     if music_id:
         # The sound to attach, as the id of a sound in the TikTok app.
@@ -453,7 +457,14 @@ def cmd_photo(title, urls, music_id=None, auto_music=None):
         timeout=30,
     ).json()
 
-    if init.get("error", {}).get("code") not in (None, "ok"):
+    code = init.get("error", {}).get("code")
+    if code not in (None, "ok"):
+        if code == "url_ownership_unverified":
+            sys.exit("TikTok does not recognise this domain as yours.\n"
+                     "Add it under URL properties in the TikTok for Developers site,\n"
+                     "then run this again. The verification file for this domain is:\n"
+                     "  https://nguyenkieuthinh.github.io/uppost/"
+                     "tiktoknZIRTB9kqIlBLFSfXjUNdWvIxMX2SAY8.txt")
         sys.exit(f"Init failed: {json.dumps(init, indent=2)}")
 
     publish_id = init["data"]["publish_id"]
@@ -675,10 +686,12 @@ def main():
         cmd_upload(sys.argv[2], note)
     else:
         if len(sys.argv) < 4:
-            sys.exit('Usage: python uppost.py photo "Caption" URL1 [URL2 ...]\n'
-                     '       python uppost.py photo "Caption" URL1 --music 7387754233984227846')
+            sys.exit('Usage: python uppost.py photo "Title" URL1 [URL2 ...]\n'
+                     '       python uppost.py photo "Title" URL1 --music 7387754233984227846\n'
+                     '       python uppost.py photo "Title" URL1 --desc @caption.txt')
         music_id = None
         auto_music = None
+        description = None
         args = []
         rest = sys.argv[3:]
         i = 0
@@ -686,6 +699,9 @@ def main():
             arg = rest[i]
             if arg == "--music" and i + 1 < len(rest):
                 music_id = rest[i + 1]
+                i += 2
+            elif arg == "--desc" and i + 1 < len(rest):
+                description = read_note(rest[i + 1], PHOTO_DESC_MAX)
                 i += 2
             elif arg == "--auto-music":
                 auto_music = True
@@ -696,7 +712,7 @@ def main():
             else:
                 args.append(arg)
                 i += 1
-        cmd_photo(sys.argv[2], args, music_id, auto_music)
+        cmd_photo(sys.argv[2], args, music_id, auto_music, description)
 
 
 if __name__ == "__main__":
